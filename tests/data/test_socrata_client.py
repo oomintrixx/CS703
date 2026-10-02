@@ -1,5 +1,8 @@
 from unittest.mock import patch, Mock
 
+import pytest
+import requests
+
 from cs703.data.socrata_client import fetch_all
 
 
@@ -67,3 +70,29 @@ def test_fetch_all_omits_app_token_param_when_none(mock_get):
 
     called_params = mock_get.call_args.kwargs["params"]
     assert "$$app_token" not in called_params
+
+
+@patch("cs703.data.socrata_client.time.sleep")
+@patch("cs703.data.socrata_client.requests.get")
+def test_fetch_all_retries_on_timeout_then_succeeds(mock_get, mock_sleep):
+    success_resp = Mock()
+    success_resp.json.return_value = [{"id": 1}]
+    success_resp.raise_for_status.return_value = None
+    mock_get.side_effect = [requests.exceptions.Timeout("timed out"), success_resp]
+
+    rows = fetch_all("abcd-1234", page_size=50_000)
+
+    assert rows == [{"id": 1}]
+    assert mock_get.call_count == 2
+    mock_sleep.assert_called_once()
+
+
+@patch("cs703.data.socrata_client.time.sleep")
+@patch("cs703.data.socrata_client.requests.get")
+def test_fetch_all_raises_after_exhausting_retries(mock_get, mock_sleep):
+    mock_get.side_effect = requests.exceptions.Timeout("timed out")
+
+    with pytest.raises(requests.exceptions.Timeout):
+        fetch_all("abcd-1234", max_retries=2)
+
+    assert mock_get.call_count == 3  # initial attempt + 2 retries
