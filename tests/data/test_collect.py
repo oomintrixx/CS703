@@ -57,6 +57,21 @@ def test_run_collection_writes_files_and_manifest(
     assert manifest["sources"]["precincts"]["rows_collected"] == 1
     assert manifest["sources"]["weather"]["rows_collected"] == 1
 
+    # New manifest keys required by the design spec: row count, file size,
+    # fetch timestamp, and source URL per source.
+    assert manifest["sources"]["violations_aggregates"]["rows_collected"] == sum(
+        int(row["count"]) for row in mock_borough.return_value
+    )
+    assert "file_size_bytes" in manifest["sources"]["meters"]
+    assert manifest["sources"]["meters"]["file_size_bytes"] > 0
+    assert isinstance(manifest["sources"]["violations_aggregates"]["file_size_bytes"], dict)
+    assert set(manifest["sources"]["violations_aggregates"]["file_size_bytes"]) == set(
+        manifest["sources"]["violations_aggregates"]["files"]
+    )
+    for source in manifest["sources"].values():
+        assert "fetched_at" in source
+        assert "source_url" in source
+
 
 @patch("cs703.data.collect.weather.fetch_weather")
 @patch("cs703.data.collect.precincts.fetch_precincts")
@@ -99,6 +114,7 @@ def test_run_collection_handles_rows_with_heterogeneous_keys(
     manifest = run_collection(raw_dir, processed_dir, app_token=None)
 
     assert manifest["sources"]["meters"]["rows_collected"] == 2
+    assert manifest["sources"]["meters"]["file_size_bytes"] > 0
     meters_csv = (raw_dir / "parking_meters.csv").read_text()
     assert "parking_facility_name" in meters_csv
     assert "Some Garage" in meters_csv
